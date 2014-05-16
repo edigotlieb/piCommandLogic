@@ -42,7 +42,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define CALIBRATION_MESSAGE "calibrate"
+#define CALIBRATION_MESSAGE "piCalibrat"
 #define TRIGGER "piTrigger"
 typedef enum read_results
 {
@@ -279,7 +279,7 @@ read_results serial_readMSG(int serial_fd)
     // If a message could be decoded, handle it
     if (msgReceived)
     {
-        printf("Received message from serial with ID #%d (sys:%d|comp:%d):\n", message.msgid, message.sysid, message.compid);
+        //printf("Received message from serial with ID #%d (sys:%d|comp:%d):\n", message.msgid, message.sysid, message.compid);
 
         /* decode and print */
 
@@ -303,30 +303,35 @@ read_results serial_readMSG(int serial_fd)
         break;
         case  MAVLINK_MSG_ID_NAMED_VALUE_INT:
         {
+            printf("got named value\n");
             mavlink_named_value_int_t named_int;
             mavlink_msg_named_value_int_decode(&message,&named_int);
-            if (strcmp(named_int.name,CALIBRATION_MESSAGE))
+            printf("%s",named_int.name);
+            cout << named_int.value<<endl;
+            if (!strcmp(named_int.name,CALIBRATION_MESSAGE))
             {
                 if (named_int.value == 1)
                 {
+                    cout << "Calib Stop"<<endl;
                     // calibration start
                     return CALIB_START;
                 } else
                 {
+                    cout << "Calib Start"<<endl;
                     // calibration stop
                     return CALIB_STOP;
                 }
-            } else if(strcmp(named_int.name,TRIGGER))
+            } else if(!strcmp(named_int.name,TRIGGER))
             {
                 if (named_int.value==1)
                 {
                     // flag
-                    cout << "Trigger recieved with value 1" << endl;
+                    printf("*** Starting Trig ***\n");
                     return TRIGGER_RECIEVED;
                 } else
                 {
                     // same flag
-                    cout << "Trigger recieved with value not 1" << endl;
+                    cout << "*** Stopping Trig ***" << endl;
                     return TRIGGER_RECIEVED;
                 }
             }
@@ -463,7 +468,7 @@ int main(int argc, char **argv)
 {
 
     /* default values for arguments */
-    char *uart_name = (char*) "/dev/ttyACM1";
+    char *uart_name = (char*) "/dev/ttyACM0";
     int baudrate = 115200;
     trigger_id = 0;
 
