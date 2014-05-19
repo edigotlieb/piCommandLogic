@@ -60,7 +60,7 @@ using std::string;
 using namespace std;
 uint16_t trigger_id;
 struct timeval tv; ///< System time
-
+int loggingLevel;
 // Settings
 int sysid = 42; ///< The unique system id of this MAV, 0-127. Has to be consistent across the system
 int compid = 110;
@@ -69,8 +69,9 @@ bool silent = false; ///< Wether console output should be enabled
 bool verbose = false; ///< Enable verbose output
 bool debug = false; ///< Enable debug functions and output
 int fd;
+ofstream logFile;
 
-std::string numberToString(int num){
+std::string numberToString(int num) {
     ostringstream strout;
     string str;
     strout << num;
@@ -82,33 +83,33 @@ int init_pin(int pin) {
     string pin_str = numberToString(pin);
     string dir = "/sys/class/gpio/export";
     ofstream file(dir.c_str());
-    if (file<0){
+    if (file < 0) {
         //error
         return -1;
     }
     file << pin;
     file.close();
-    dir = "/sys/class/gpio/gpio"+pin_str+"/direction";
+    dir = "/sys/class/gpio/gpio" + pin_str + "/direction";
     file.open(dir.c_str());
-    if (file<0){
+    if (file < 0) {
         //error
         return -1;
     }
-    file<<"out";
+    file << "out";
     file.close();
     return 1;
 }
 
-int write_pin(int pin,int value){
-    if (value!=0&&value!=1){
+int write_pin(int pin, int value) {
+    if (value != 0 && value != 1) {
         //error
         return -1;
     }
     string value_str = numberToString(value);
     string pin_str = numberToString(pin);
-    string dir = "/sys/class/gpio/gpio"+pin_str+"/value";
-    ofstream file (dir.c_str());
-    if (file<0){
+    string dir = "/sys/class/gpio/gpio" + pin_str + "/value";
+    ofstream file(dir.c_str());
+    if (file < 0) {
         return -1;
     }
     file << value_str;
@@ -116,10 +117,10 @@ int write_pin(int pin,int value){
     return 1;
 }
 
-void blink(int pin){
-    write_pin(pin,1);
+void blink(int pin) {
+    write_pin(pin, 1);
     usleep(250000);
-    write_pin(pin,0);
+    write_pin(pin, 0);
     usleep(250000);
 }
 
@@ -304,6 +305,11 @@ int sendTrigger(int serial_fd) {
 
 }
 
+void log(int level, string message){
+    if (loggingLevel>=level){
+        logFile<<message;
+    }
+}
 
 /**
  * @brief Serial function
@@ -357,17 +363,18 @@ read_results serial_readMSG(int serial_fd) {
                     printf("got named value\n");
                     mavlink_named_value_int_t named_int;
                     mavlink_msg_named_value_int_decode(&message, &named_int);
-                    printf("%s", named_int.name);
+                    named_int.name[10] = '\0';
+                    printf("value: %s\n", named_int.name);
                     cout << named_int.value << endl;
                     if (!strcmp(named_int.name, CALIBRATION_MESSAGE)) {
                         if (named_int.value == 1) {
                             cout << "Calib Stop" << endl;
-                            blink(BLUE_LED);
+                            write_pin(BLUE_LED, 0);
                             // calibration start
                             //return CALIB_START;
                         } else {
-                           cout << "Calib Start" << endl;
-                           blink(RED_LED)
+                            cout << "Calib Start" << endl;
+                            write_pin(BLUE_LED, 1);
                             // calibration stop
                             // return CALIB_STOP;
                         }
@@ -375,10 +382,12 @@ read_results serial_readMSG(int serial_fd) {
                         if (named_int.value == 1) {
                             // flag
                             printf("*** Starting Trig ***\n");
+                            write_pin(RED_LED,1);
                             //return TRIGGER_RECIEVED;
                         } else {
                             // same flag
                             cout << "*** Stopping Trig ***" << endl;
+                            write_pin(RED_LED,0);
                             //return TRIGGER_RECIEVED;
                         }
                     }
@@ -399,7 +408,7 @@ read_results serial_readMSG(int serial_fd) {
         // process
         // send data
         trigger_id++;
-        
+
     }
     return NOTHING;
 }
@@ -411,7 +420,6 @@ int setupPort(char* uart_name, int baudrate) {
     // Open the serial port.
     if (!silent) printf("Trying to connect to %s.. ", uart_name);
     fflush(stdout);
-
     fd = open_port(uart_name);
     if (fd == -1) {
         if (!silent) printf("failure, could not open port.\n");
@@ -477,18 +485,17 @@ int sendRequestDataStream(int serial_fd, int start_stop_flag) {
 
 }
 
-
-
 int main(int argc, char **argv) {
 
     /* default values for arguments */
     char *uart_name = (char*) "/dev/ttyACM0";
     int baudrate = 115200;
     trigger_id = 0;
+    loggingLevel=1; // temp
     init_pin(BLUE_LED);
     init_pin(RED_LED);
     printf("starting serial port\n");
-
+    logFile.open("log.txt");
     int status = setupPort(uart_name, baudrate);
 
     if (status == EXIT_FAILURE || status == 0) {
@@ -497,8 +504,11 @@ int main(int argc, char **argv) {
 
     // Run indefinitely while the serial loop handles data
     printf("\nREADY, waiting for serial data.\n");
-    for (int i=0;i<3;i++){
-        blink(BLUE_LED);
+    for (int i = 0; i < 4; i++) {
+        if (i % 2 == 0)
+            blink(BLUE_LED);
+        else
+            blink(RED_LED);
     }
     read_results rv;
     while (true) {
