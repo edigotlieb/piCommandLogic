@@ -1,10 +1,13 @@
-all: projecton_wrapper
-	
-mavlink_test: mavlink_test.o
-	g++ projecton_wrapper.o -o projecton_wrapper
+all: wrapper
 
-mavlink_test.o: mavlink_test.cpp
-	g++ -I mavlink/v1.0 -c projecton_wrapper.cpp
+wrapper: projecton_wrapper.o ImageProcessing.o
+	g++ ImageProcessing.o projecton_wrapper.o -o wrapper `pkg-config --cflags --libs opencv`
+
+projecton_wrapper.o: projecton_wrapper.cpp ImageProcessing.h wrapperFunctions.h
+	g++ -I mavlink/v1.0 -c projecton_wrapper.cpp `pkg-config --cflags --libs opencv`
+
+ImageProcessing.o: ImageProcessing.h ImageProcessing.cpp
+	g++ -c ImageProcessing.cpp `pkg-config --cflags --libs opencv`
 
 clean:
-	rm -rf *o projecton_wrapper
+	rm -f *o wrapper

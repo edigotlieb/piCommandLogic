@@ -42,11 +42,15 @@
 #include <sys/time.h>
 #include <time.h>
 #include <sstream>
+#include "wrapperFunctions.h"
+#include "ImageProcessing.h"
 #define CALIBRATION_MESSAGE "piCalibrat"
 #define TRIGGER "piTrigger"
 #define BLUE_LED 15
 #define RED_LED 14
 #define MAX_NUM_OF_MESSAGES 10
+#define MAX_NUM_OF_TREES 10
+#define MAX_ANGLE_TO_PROCESS 10
 
 typedef enum read_results {
     IMAGE_SENT,
@@ -59,6 +63,7 @@ typedef enum read_results {
 using std::string;
 using namespace std;
 uint16_t trigger_id;
+FilterApplier fa;
 struct timeval tv; ///< System time
 int loggingLevel;
 // Settings
@@ -70,215 +75,14 @@ bool verbose = false; ///< Enable verbose output
 bool debug = false; ///< Enable debug functions and output
 int fd;
 ofstream logFile;
+//flags
+bool triggerFlag;
 
-std::string numberToString(int num) {
-    ostringstream strout;
-    string str;
-    strout << num;
-    str = strout.str();
-    return str;
-}
 
-int init_pin(int pin) {
-    string pin_str = numberToString(pin);
-    string dir = "/sys/class/gpio/export";
-    ofstream file(dir.c_str());
-    if (file < 0) {
-        //error
-        return -1;
+void log(int level, string message) {
+    if (loggingLevel >= level) {
+        logFile << message;
     }
-    file << pin;
-    file.close();
-    dir = "/sys/class/gpio/gpio" + pin_str + "/direction";
-    file.open(dir.c_str());
-    if (file < 0) {
-        //error
-        return -1;
-    }
-    file << "out";
-    file.close();
-    return 1;
-}
-
-int write_pin(int pin, int value) {
-    if (value != 0 && value != 1) {
-        //error
-        return -1;
-    }
-    string value_str = numberToString(value);
-    string pin_str = numberToString(pin);
-    string dir = "/sys/class/gpio/gpio" + pin_str + "/value";
-    ofstream file(dir.c_str());
-    if (file < 0) {
-        return -1;
-    }
-    file << value_str;
-    file.close();
-    return 1;
-}
-
-void blink(int pin) {
-    write_pin(pin, 1);
-    usleep(250000);
-    write_pin(pin, 0);
-    usleep(250000);
-}
-
-/**
- *
- *
- * Returns the file descriptor on success or -1 on error.
- */
-int open_port(const char* port) {
-    int fd; /* File descriptor for the port */
-
-    // Open serial port
-    // O_RDWR - Read and write
-    // O_NOCTTY - Ignore special chars like CTRL-C
-    fd = open(port, O_RDWR | O_NOCTTY | O_NDELAY);
-    if (fd == -1) {
-        /* Could not open the port. */
-        return (-1);
-    } else {
-        fcntl(fd, F_SETFL, 0);
-    }
-
-    return (fd);
-}
-
-bool setup_port(int fd, int baud, int data_bits, int stop_bits, bool parity, bool hardware_control) {
-    //struct termios options;
-
-    struct termios config;
-    if (!isatty(fd)) {
-        fprintf(stderr, "\nERROR: file descriptor %d is NOT a serial port\n", fd);
-        return false;
-    }
-    if (tcgetattr(fd, &config) < 0) {
-        fprintf(stderr, "\nERROR: could not read configuration of fd %d\n", fd);
-        return false;
-    }
-    //
-    // Input flags - Turn off input processing
-    // convert break to null byte, no CR to NL translation,
-    // no NL to CR translation, don't mark parity errors or breaks
-    // no input parity check, don't strip high bit off,
-    // no XON/XOFF software flow control
-    //
-    config.c_iflag &= ~(IGNBRK | BRKINT | ICRNL |
-            INLCR | PARMRK | INPCK | ISTRIP | IXON);
-    //
-    // Output flags - Turn off output processing
-    // no CR to NL translation, no NL to CR-NL translation,
-    // no NL to CR translation, no column 0 CR suppression,
-    // no Ctrl-D suppression, no fill characters, no case mapping,
-    // no local output processing
-    //
-    config.c_oflag &= ~(OCRNL | ONLCR | ONLRET |
-            ONOCR | OFILL | OPOST);
-
-#ifdef OLCUC
-    config.c_oflag &= ~OLCUC;
-#endif
-
-#ifdef ONOEOT
-    config.c_oflag &= ~ONOEOT;
-#endif
-
-    //
-    // No line processing:
-    // echo off, echo newline off, canonical mode off,
-    // extended input processing off, signal chars off
-    //
-    config.c_lflag &= ~(ECHO | ECHONL | ICANON | IEXTEN | ISIG);
-    //
-    // Turn off character processing
-    // clear current char size mask, no parity checking,
-    // no output processing, force 8 bit input
-    //
-    config.c_cflag &= ~(CSIZE | PARENB);
-    config.c_cflag |= CS8;
-    //
-    // One input byte is enough to return from read()
-    // Inter-character timer off
-    //
-    config.c_cc[VMIN] = 1;
-    config.c_cc[VTIME] = 10; // was 0
-
-    // Get the current options for the port
-    //tcgetattr(fd, &options);
-
-    switch (baud) {
-        case 1200:
-            if (cfsetispeed(&config, B1200) < 0 || cfsetospeed(&config, B1200) < 0) {
-                fprintf(stderr, "\nERROR: Could not set desired baud rate of %d Baud\n", baud);
-                return false;
-            }
-            break;
-        case 1800:
-            cfsetispeed(&config, B1800);
-            cfsetospeed(&config, B1800);
-            break;
-        case 9600:
-            cfsetispeed(&config, B9600);
-            cfsetospeed(&config, B9600);
-            break;
-        case 19200:
-            cfsetispeed(&config, B19200);
-            cfsetospeed(&config, B19200);
-            break;
-        case 38400:
-            if (cfsetispeed(&config, B38400) < 0 || cfsetospeed(&config, B38400) < 0) {
-                fprintf(stderr, "\nERROR: Could not set desired baud rate of %d Baud\n", baud);
-                return false;
-            }
-            break;
-        case 57600:
-            if (cfsetispeed(&config, B57600) < 0 || cfsetospeed(&config, B57600) < 0) {
-                fprintf(stderr, "\nERROR: Could not set desired baud rate of %d Baud\n", baud);
-                return false;
-            }
-            break;
-        case 115200:
-            if (cfsetispeed(&config, B115200) < 0 || cfsetospeed(&config, B115200) < 0) {
-                fprintf(stderr, "\nERROR: Could not set desired baud rate of %d Baud\n", baud);
-                return false;
-            }
-            break;
-
-            // These two non-standard (by the 70'ties ) rates are fully supported on
-            // current Debian and Mac OS versions (tested since 2010).
-        case 460800:
-            if (cfsetispeed(&config, 460800) < 0 || cfsetospeed(&config, 460800) < 0) {
-                fprintf(stderr, "\nERROR: Could not set desired baud rate of %d Baud\n", baud);
-                return false;
-            }
-            break;
-        case 921600:
-            if (cfsetispeed(&config, 921600) < 0 || cfsetospeed(&config, 921600) < 0) {
-                fprintf(stderr, "\nERROR: Could not set desired baud rate of %d Baud\n", baud);
-                return false;
-            }
-            break;
-        default:
-            fprintf(stderr, "ERROR: Desired baud rate %d could not be set, aborting.\n", baud);
-            return false;
-
-            break;
-    }
-
-    //
-    // Finally, apply the configuration
-    //
-    if (tcsetattr(fd, TCSAFLUSH, &config) < 0) {
-        fprintf(stderr, "\nERROR: could not set configuration of fd %d\n", fd);
-        return false;
-    }
-    return true;
-}
-
-void close_port(int fd) {
-    close(fd);
 }
 
 int sendTrigger(int serial_fd) {
@@ -305,10 +109,47 @@ int sendTrigger(int serial_fd) {
 
 }
 
-void log(int level, string message){
-    if (loggingLevel>=level){
-        logFile<<message;
-    }
+int sendCamData(int serial_fd, int trees[MAX_NUM_OF_TREES][2]) {
+    int fd = serial_fd;
+    char buf[300];
+    mavlink_message_t message;
+    mavlink_pi_cam_data_t data;
+    data.start_tree_1 = trees[0][0];
+    data.end_tree_1 = trees[0][1];
+    data.start_tree_2 = trees[1][0];
+    data.end_tree_2 = trees[1][1];
+    data.start_tree_3 = trees[2][0];
+    data.end_tree_3 = trees[2][1];
+    data.start_tree_4 = trees[3][0];
+    data.end_tree_4 = trees[3][1];
+    data.start_tree_5 = trees[4][0];
+    data.end_tree_5 = trees[4][1];
+    data.start_tree_6 = trees[5][0];
+    data.end_tree_6 = trees[5][1];
+    data.start_tree_7 = trees[6][0];
+    data.end_tree_7 = trees[6][1];
+    data.start_tree_8 = trees[7][0];
+    data.end_tree_8 = trees[7][1];
+    data.start_tree_9 = trees[8][0];
+    data.end_tree_9 = trees[8][1];
+    data.start_tree_10 = trees[9][0];
+    data.end_tree_10 = trees[9][1];
+    data.data_id = trigger_id;
+    mavlink_msg_pi_cam_data_encode(255, 1, &message, &data);
+
+    unsigned len = mavlink_msg_to_send_buffer((uint8_t*) buf, &message);
+    //   printf("before write\n");
+    /* write packet via serial link */
+    write(fd, buf, len);
+
+    /* wait until all data has been written
+    tcdrain(fd);
+     */
+    //     printf("after write , sys_id = %d\n",requestParam.target_system);
+
+
+    return 0;
+
 }
 
 /**
@@ -348,10 +189,9 @@ read_results serial_readMSG(int serial_fd) {
                 {
                     mavlink_attitude_t attitude;
                     mavlink_msg_attitude_decode(&message, &attitude);
-                    // check trigger flag
-                    // if trigger:
+                    if (triggerFlag){
                     last_angle = attitude.roll;
-
+                    }
 
                     //        printf("Got message ATTITUDE \n");
                     //        printf("\t YAW:\t% f\tPITCH:\t% f\tROLL:\t% f \n", attitude.yaw, attitude.pitch, attitude.roll);
@@ -360,6 +200,7 @@ read_results serial_readMSG(int serial_fd) {
                     break;
                 case MAVLINK_MSG_ID_NAMED_VALUE_INT:
                 {
+                    int rv;
                     printf("got named value\n");
                     mavlink_named_value_int_t named_int;
                     mavlink_msg_named_value_int_decode(&message, &named_int);
@@ -369,25 +210,44 @@ read_results serial_readMSG(int serial_fd) {
                     if (!strcmp(named_int.name, CALIBRATION_MESSAGE)) {
                         if (named_int.value == 1) {
                             cout << "Calib Stop" << endl;
+                            fa.~FilterApplier();
+                            fa = FilterApplier();
+                            if(!fa.isOpened()){
+                                blink(RED_LED);
+                                blink(BLUE_LED);
+                                blink(RED_LED);
+                                blink(BLUE_LED);
+                                blink(RED_LED);
+                                blink(BLUE_LED);
+                                blink(RED_LED);
+                                blink(BLUE_LED);
+                            }
                             write_pin(BLUE_LED, 0);
-                            // calibration start
-                            //return CALIB_START;
+                            write_pin(RED_LED,0);
                         } else {
                             cout << "Calib Start" << endl;
                             write_pin(BLUE_LED, 1);
-                            // calibration stop
-                            // return CALIB_STOP;
+                            rv = take_pictures_for_calib();
+                            if (rv != 0) {
+                                blink(RED_LED);
+                                blink(RED_LED);
+                                blink(RED_LED);
+                            } else {
+                                write_pin(RED_LED, 1);
+                            }
+                            
                         }
                     } else if (!strcmp(named_int.name, TRIGGER)) {
                         if (named_int.value == 1) {
                             // flag
                             printf("*** Starting Trig ***\n");
-                            write_pin(RED_LED,1);
+                            write_pin(RED_LED, 1);
+                            triggerFlag = true;
                             //return TRIGGER_RECIEVED;
                         } else {
                             // same flag
                             cout << "*** Stopping Trig ***" << endl;
-                            write_pin(RED_LED,0);
+                            write_pin(RED_LED, 0);
                             //return TRIGGER_RECIEVED;
                         }
                     }
@@ -401,12 +261,14 @@ read_results serial_readMSG(int serial_fd) {
         }
     }
     // If a message could be decoded, handle it
-    if (last_angle != -181) {
+    if (last_angle != -181 && abs(last_angle) < MAX_ANGLE_TO_PROCESS) {
         // send trigger
         int rv = sendTrigger(fd);
-        // capture
-        // process
+        // capture & process
+        int trees[MAX_NUM_OF_TREES][2];
+        fa.findTrees(trees);
         // send data
+        sendCamData(fd, trees);
         trigger_id++;
 
     }
@@ -487,24 +349,23 @@ int sendRequestDataStream(int serial_fd, int start_stop_flag) {
 
 int main(int argc, char **argv) {
 
-    /* default values for arguments */
+    // init
     char *uart_name = (char*) "/dev/ttyACM0";
     int baudrate = 115200;
     trigger_id = 0;
-    loggingLevel=1; // temp
+    triggerFlag=false;
+    loggingLevel = 1; // temp
     init_pin(BLUE_LED);
     init_pin(RED_LED);
-    printf("starting serial port\n");
     logFile.open("log.txt");
     int status = setupPort(uart_name, baudrate);
-
+    printf("starting serial port\n");
     if (status == EXIT_FAILURE || status == 0) {
         exit(status);
     }
-
     // Run indefinitely while the serial loop handles data
     printf("\nREADY, waiting for serial data.\n");
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; i++) { //blinking to indicate start
         if (i % 2 == 0)
             blink(BLUE_LED);
         else

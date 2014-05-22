@@ -7,7 +7,9 @@
     <editor-bookmarks xmlns="http://www.netbeans.org/ns/editor-bookmarks/2" lastBookmarkId="0"/>
     <open-files xmlns="http://www.netbeans.org/ns/projectui-open-files/2">
         <group>
+            <file>file:/home/udi/NetBeansProjects/piCommandLogic/mavlink/v1.0/ardupilotmega/mavlink_msg_pi_cam_data.h</file>
             <file>file:/home/udi/NetBeansProjects/piCommandLogic/Makefile</file>
+            <file>file:/home/udi/NetBeansProjects/piCommandLogic/mavlink/v1.0/ardupilotmega/mavlink_msg_pi_trigger.h</file>
             <file>file:/home/udi/NetBeansProjects/piCommandLogic/projecton_wrapper.cpp</file>
         </group>
     </open-files>

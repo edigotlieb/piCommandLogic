@@ -35,6 +35,8 @@ OBJECTDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}
 
 # Object Files
 OBJECTFILES= \
+	${OBJECTDIR}/calib_test.o \
+	${OBJECTDIR}/mavlink/comm_test.o \
 	${OBJECTDIR}/projecton_wrapper.o
 
 
@@ -61,6 +63,16 @@ LDLIBSOPTIONS=
 ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/picommandlogic: ${OBJECTFILES}
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
 	${LINK.cc} -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/picommandlogic ${OBJECTFILES} ${LDLIBSOPTIONS}
+
+${OBJECTDIR}/calib_test.o: calib_test.cpp 
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.cc) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/calib_test.o calib_test.cpp
+
+${OBJECTDIR}/mavlink/comm_test.o: mavlink/comm_test.cpp 
+	${MKDIR} -p ${OBJECTDIR}/mavlink
+	${RM} "$@.d"
+	$(COMPILE.cc) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/mavlink/comm_test.o mavlink/comm_test.cpp
 
 ${OBJECTDIR}/projecton_wrapper.o: projecton_wrapper.cpp 
 	${MKDIR} -p ${OBJECTDIR}
